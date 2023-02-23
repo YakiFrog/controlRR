@@ -14,10 +14,12 @@ bool can_init(int rx, int tx, int speed) {
 
 // M2006に送信するデータを作成
 void m2006_make_data(int16_t data_in[8], uint8_t data_out1[8], uint8_t data_out2[8]) {
+    // 0x200用のデータを作成（ID1-4）
     for (int i = 0; i < 4; i++) {
         data_out1[0 + (i * 2)] = (data_in[i] >> 8) & 0xFF;
         data_out1[1 + (i * 2)] = data_in[i] & 0xFF;
     }
+    // 0x1FF用のデータを作成（ID5-8）
     for (int i = 0; i < 4; i++) {
         data_out2[0 + (i * 2)] = (data_in[i + 4] >> 8) & 0xFF;
         data_out2[1 + (i * 2)] = data_in[i + 4] & 0xFF;
