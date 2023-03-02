@@ -156,6 +156,7 @@ void loop() {
 
   for (int i = 0; i < 4; i++){
     diff_angle[i] = target_angle[i] - current_angle[i]; // 例：180 - (-90) = 270
+    if (diff_angle[i] > 180) diff_angle[i] -= 360; // 例：270 - 360 = -90
   } 
 
   Serial.print(String(target_angle[0]) + ", ");
