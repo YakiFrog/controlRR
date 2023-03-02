@@ -40,3 +40,26 @@ bool m2006_send_data(uint8_t data_out1[8], uint8_t data_out2[8]) {
 
     return success0x200 && success0x1FF;
 }
+
+void m2006_read_data(int id, uint16_t angle, uint16_t rpm, uint16_t torque){
+    if (CAN.parsePacket() && CAN.filter(id)) {
+        long id = CAN.packetId();
+        for (int i = 0; i < 4; i++){
+            uint8_t top = CAN.read();
+            uint8_t bottom = CAN.read();
+            int16_t data = (top << 8) | bottom;
+            if (i == 0) angle = (float)(data * 360 / 8192);
+            if (i == 1) rpm = (float)(data * 36 / 8192);
+            if (i == 2) torque = (float)(data * 100 / 8192);
+            if (i == 3) data = 0;
+        }
+
+        Serial.print(id, HEX);
+        Serial.print(":");
+        Serial.print(angle);
+        Serial.print(",");
+        Serial.print(rpm);
+        Serial.print(",");
+        Serial.println(torque);
+    }
+}

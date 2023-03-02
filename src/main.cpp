@@ -53,6 +53,10 @@ double r_y = 0.0; // 右スティックのY軸
 
 double angle = 0.0; // 方向転換用の角度
 
+uint16_t mangle = 0; //
+uint16_t mrpm = 0; //
+uint16_t mtorque = 0; //
+
 // 初期設定
 void setup() {
   // Serial
@@ -103,11 +107,11 @@ void setup() {
   Serial.println("> AS5600_TCA9548A: Offset1: " + String(offset1[0]) + ", " + String(offset1[1]) + ", " + String(offset1[2]) + ", " + String(offset1[3]));
 
   // PS4
-  PS4.begin(PS4_ADDR);
-  Serial.println("> PS4: Started.");
-  Serial.println("> PS4: Press PS button to connect.");
-  while (!PS4.isConnected());
-  Serial.println("> PS4: Connected.");
+  // PS4.begin(PS4_ADDR);
+  // Serial.println("> PS4: Started.");
+  // Serial.println("> PS4: Press PS button to connect.");
+  // while (!PS4.isConnected());
+  // Serial.println("> PS4: Connected.");
 
   // LED
   digitalWrite(LED_PIN, HIGH);
@@ -118,70 +122,70 @@ int x = 0;
 
 // メインループ: LEDが点滅していなければ，動いていないということ．
 void loop() {
-  if (PS4.LatestPacket()){
-    // 移動・旋回
-    if (PS4.LStickX()) l_x = PS4.LStickX(); // -127 ~ 127
-    if (PS4.LStickY()) l_y = PS4.LStickY(); // -127 ~ 127
-    if (PS4.RStickX()) r_x = PS4.RStickX(); // -127 ~ 127
-    if (PS4.RStickY()) r_y = PS4.RStickY(); // -127 ~ 127
-    // // 投射機構：上下
-    // if (PS4.Up()) mdds30_control_motor(0x01, 70, 70);
-    // if (PS4.Down()) mdds30_control_motor(0x01, -70, -70);
-    // if (!PS4.Up() && !PS4.Down()) mdds30_control_motor(0x01, 0, 0); 
-    // // 投射機構：回転
-    // if (PS4.Circle()) mdds30_control_motor(0x00, 100, 100); // 100%
-    // if (PS4.Triangle()) mdds30_control_motor(0x00, 70, 70); // 70%
-    // if (PS4.Square()) mdds30_control_motor(0x00, 50, 50); // 50%
-    // // 移動・旋回・投射機構：停止
-    // if (PS4.Cross()) { // 全てのモータを停止
-    //   mdds30_control_motor(0x00, 0, 0); // 0%
-    //   mdds30_control_motor(0x01, 0, 0); // 0%
-    //   l_x = 0.0;
-    //   l_y = 0.0;
-    //   r_x = 0.0;
-    //   r_y = 0.0;
-    // }
-  }
+  // if (PS4.LatestPacket()){
+  //   // 移動・旋回
+  //   if (PS4.LStickX()) l_x = PS4.LStickX(); // -127 ~ 127
+  //   if (PS4.LStickY()) l_y = PS4.LStickY(); // -127 ~ 127
+  //   if (PS4.RStickX()) r_x = PS4.RStickX(); // -127 ~ 127
+  //   if (PS4.RStickY()) r_y = PS4.RStickY(); // -127 ~ 127
+  //   // // 投射機構：上下
+  //   // if (PS4.Up()) mdds30_control_motor(0x01, 70, 70);
+  //   // if (PS4.Down()) mdds30_control_motor(0x01, -70, -70);
+  //   // if (!PS4.Up() && !PS4.Down()) mdds30_control_motor(0x01, 0, 0); 
+  //   // // 投射機構：回転
+  //   // if (PS4.Circle()) mdds30_control_motor(0x00, 100, 100); // 100%
+  //   // if (PS4.Triangle()) mdds30_control_motor(0x00, 70, 70); // 70%
+  //   // if (PS4.Square()) mdds30_control_motor(0x00, 50, 50); // 50%
+  //   // // 移動・旋回・投射機構：停止
+  //   // if (PS4.Cross()) { // 全てのモータを停止
+  //   //   mdds30_control_motor(0x00, 0, 0); // 0%
+  //   //   mdds30_control_motor(0x01, 0, 0); // 0%
+  //   //   l_x = 0.0;
+  //   //   l_y = 0.0;
+  //   //   r_x = 0.0;
+  //   //   r_y = 0.0;
+  //   // }
+  // }
 
-  if (l_x < 12.7 && l_x > -12.7) l_x = 0.0; // 12.7以下の値は0とする
-  if (l_y < 12.7 && l_y > -12.7) l_y = 0.0; // 12.7以下の値は0とする
-  if (r_x < 12.7 && r_x > -12.7) r_x = 0.0; // 12.7以下の値は0とする
-  if (r_y < 12.7 && r_y > -12.7) r_y = 0.0; // 12.7以下の値は0とする
+  // if (l_x < 12.7 && l_x > -12.7) l_x = 0.0; // 12.7以下の値は0とする
+  // if (l_y < 12.7 && l_y > -12.7) l_y = 0.0; // 12.7以下の値は0とする
+  // if (r_x < 12.7 && r_x > -12.7) r_x = 0.0; // 12.7以下の値は0とする
+  // if (r_y < 12.7 && r_y > -12.7) r_y = 0.0; // 12.7以下の値は0とする
 
-  // l_x, l_yから角度を求める(-180 to 180)
-  angle = atan2(l_x, l_y) * 180 / PI; // 0 ~ 360 (90度ずらす)
-  for (int i = 0; i < 4; i++){
-    target_angle[i] = angle;
-  }
+  // // l_x, l_yから角度を求める(-180 to 180)
+  // angle = atan2(l_x, l_y) * 180 / PI; // 0 ~ 360 (90度ずらす)
+  // for (int i = 0; i < 4; i++){
+  //   target_angle[i] = angle;
+  // }
 
-  for (int i = 0; i < 4; i++){
-    diff_angle[i] = target_angle[i] - current_angle[i]; // 例：180 - (-90) = 270
-    if (diff_angle[i] > 180) diff_angle[i] -= 360; // 例：270 - 360 = -90
-  } 
+  // for (int i = 0; i < 4; i++){
+  //   diff_angle[i] = target_angle[i] - current_angle[i]; // 例：180 - (-90) = 270
+  //   if (diff_angle[i] > 180) diff_angle[i] -= 360; // 例：270 - 360 = -90
+  // } 
 
-  Serial.print(String(target_angle[0]) + ", ");
-  for (int i = 0; i < 4; i++){
-    Serial.print(String(diff_angle[i]) + ", ");
-  }
-  Serial.println();
+  // Serial.print(String(target_angle[0]) + ", ");
+  // for (int i = 0; i < 4; i++){
+  //   Serial.print(String(diff_angle[i]) + ", ");
+  // }
+  // Serial.println();
 
-  // モータに流す電流値を計算
+  // // モータに流す電流値を計算
 
-  // 基底電流(これを基準に，角度に応じて電流を変化させる)
-  int base_current = 500;
+  // // 基底電流(これを基準に，角度に応じて電流を変化させる)
+  // int base_current = 1000;
 
-  for (int i = 0; i < 4; i++){
-    current_data[0 + (i * 2)] = base_current + (base_current * (diff_angle[i] / 180)); // 0 ~ 1000 (CW)
-    current_data[1 + (i * 2)] = -(base_current - (base_current * (diff_angle[i] / 180))); // 0 ~ 1000 (CCW)
-  }
+  // for (int i = 0; i < 4; i++){
+  //   current_data[0 + (i * 2)] = (base_current * (diff_angle[i] / 180)); // 0 ~ 1000 (CW)
+  //   current_data[1 + (i * 2)] = (base_current * (diff_angle[i] / 180)); // 0 ~ 1000 (CCW)
+  // }
 
-    // diff_angle[0] = 180   のとき  current_data[0] = 1000, current_data[1] = 0
-    // diff_angle[0] = 90    のとき  current_data[0] = 750, current_data[1] = 250
-    // diff_angle[0] = 45    のとき  current_data[0] = 625, current_data[1] = 375
-    // diff_angle[0] = 0     のとき  current_data[0] = 500, current_data[1] = 500 (停止限界)
-    // diff_angle[0] = -45   のとき  current_data[0] = 375, current_data[1] = 625
-    // diff_angle[0] = -90   のとき  current_data[0] = 250, current_data[1] = 750
-    // diff_angle[0] = -180  のとき  current_data[0] = 0, current_data[1] = 1000
+  //   // diff_angle[0] = 180   のとき  current_data[0] = 1000, current_data[1] = 0
+  //   // diff_angle[0] = 90    のとき  current_data[0] = 750, current_data[1] = 250
+  //   // diff_angle[0] = 45    のとき  current_data[0] = 625, current_data[1] = 375
+  //   // diff_angle[0] = 0     のとき  current_data[0] = 500, current_data[1] = 500 (停止限界)
+  //   // diff_angle[0] = -45   のとき  current_data[0] = 375, current_data[1] = 625
+  //   // diff_angle[0] = -90   のとき  current_data[0] = 250, current_data[1] = 750
+  //   // diff_angle[0] = -180  のとき  current_data[0] = 0, current_data[1] = 1000
 
   // ------------------------------------------------------------ //
   // 100msごとに割り込み処理
@@ -190,12 +194,15 @@ void loop() {
     last_time = millis();
     // 現在のホイールの方位方向の角度を取得
     as5600_tca9548a_get_current_angle(current_angle, offset1, offset2);
+    m2006_read_data(0x201, mangle, mrpm, mtorque);
   }
   // ------------------------------------------------------------ //
-  // M2006に送信するデータを作成
-  m2006_make_data(current_data, send_data1, send_data2);
-  // M2006にデータを送信
-  m2006_send_data(send_data1, send_data2);
+  // // M2006に送信するデータを作成
+  // m2006_make_data(current_data, send_data1, send_data2);
+  // // M2006にデータを送信
+  // m2006_send_data(send_data1, send_data2);
+  // M2006のデータを読むこむ
+
   // LEDを点滅
   digitalWrite(LED_PIN, !digitalRead(LED_PIN));
   // ------------------------------------------------------------ //
