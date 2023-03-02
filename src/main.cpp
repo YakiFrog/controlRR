@@ -114,6 +114,8 @@ void setup() {
   delay(1000); // 1秒待つ
 }
 
+int x = 0;
+
 // メインループ: LEDが点滅していなければ，動いていないということ．
 void loop() {
   if (PS4.LatestPacket()){
@@ -122,23 +124,23 @@ void loop() {
     if (PS4.LStickY()) l_y = PS4.LStickY(); // -127 ~ 127
     if (PS4.RStickX()) r_x = PS4.RStickX(); // -127 ~ 127
     if (PS4.RStickY()) r_y = PS4.RStickY(); // -127 ~ 127
-    // 投射機構：上下
-    if (PS4.Up()) mdds30_control_motor(0x01, 70, 70);
-    if (PS4.Down()) mdds30_control_motor(0x01, -70, -70);
-    if (!PS4.Up() && !PS4.Down()) mdds30_control_motor(0x01, 0, 0); 
-    // 投射機構：回転
-    if (PS4.Circle()) mdds30_control_motor(0x00, 100, 100); // 100%
-    if (PS4.Triangle()) mdds30_control_motor(0x00, 70, 70); // 70%
-    if (PS4.Square()) mdds30_control_motor(0x00, 50, 50); // 50%
-    // 移動・旋回・投射機構：停止
-    if (PS4.Cross()) { // 全てのモータを停止
-      mdds30_control_motor(0x00, 0, 0); // 0%
-      mdds30_control_motor(0x01, 0, 0); // 0%
-      l_x = 0.0;
-      l_y = 0.0;
-      r_x = 0.0;
-      r_y = 0.0;
-    }
+    // // 投射機構：上下
+    // if (PS4.Up()) mdds30_control_motor(0x01, 70, 70);
+    // if (PS4.Down()) mdds30_control_motor(0x01, -70, -70);
+    // if (!PS4.Up() && !PS4.Down()) mdds30_control_motor(0x01, 0, 0); 
+    // // 投射機構：回転
+    // if (PS4.Circle()) mdds30_control_motor(0x00, 100, 100); // 100%
+    // if (PS4.Triangle()) mdds30_control_motor(0x00, 70, 70); // 70%
+    // if (PS4.Square()) mdds30_control_motor(0x00, 50, 50); // 50%
+    // // 移動・旋回・投射機構：停止
+    // if (PS4.Cross()) { // 全てのモータを停止
+    //   mdds30_control_motor(0x00, 0, 0); // 0%
+    //   mdds30_control_motor(0x01, 0, 0); // 0%
+    //   l_x = 0.0;
+    //   l_y = 0.0;
+    //   r_x = 0.0;
+    //   r_y = 0.0;
+    // }
   }
 
   if (l_x < 12.7 && l_x > -12.7) l_x = 0.0; // 12.7以下の値は0とする
@@ -146,17 +148,21 @@ void loop() {
   if (r_x < 12.7 && r_x > -12.7) r_x = 0.0; // 12.7以下の値は0とする
   if (r_y < 12.7 && r_y > -12.7) r_y = 0.0; // 12.7以下の値は0とする
 
-  // l_x, l_yから角度を求める(0 ~ 360)
-  angle = atan2(l_x, l_y) * 180 / PI + 180 + 90; // 0 ~ 360 (90度ずらす)
+  // l_x, l_yから角度を求める(-180 to 180)
+  angle = atan2(l_x, l_y) * 180 / PI; // 0 ~ 360 (90度ずらす)
   for (int i = 0; i < 4; i++){
     target_angle[i] = angle;
   }
 
   for (int i = 0; i < 4; i++){
-    diff_angle[i] = target_angle[i] - current_angle[i]; // 例：360 - 10 = 350 (時計回りに回転)
-    // 差を-180 ~ 180に変換(最短の回転方向を求める)
-    if (diff_angle[i] > 180) diff_angle[i] -= 360; // 例：350 - 360 = -10 (反時計回りに回転)
+    diff_angle[i] = target_angle[i] - current_angle[i]; // 例：180 - (-90) = 270
+  } 
+
+  Serial.print(String(target_angle[0]) + ", ");
+  for (int i = 0; i < 4; i++){
+    Serial.print(String(diff_angle[i]) + ", ");
   }
+  Serial.println();
 
   // モータに流す電流値を計算
 
@@ -188,8 +194,10 @@ void loop() {
   // M2006に送信するデータを作成
   m2006_make_data(current_data, send_data1, send_data2);
   // M2006にデータを送信
-  if (!m2006_send_data(send_data1, send_data2)) Serial.println("> CAN: Failed to send data.");
+  m2006_send_data(send_data1, send_data2);
   // LEDを点滅
   digitalWrite(LED_PIN, !digitalRead(LED_PIN));
   // ------------------------------------------------------------ //
+
+  //
 }

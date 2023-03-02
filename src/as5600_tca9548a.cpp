@@ -53,6 +53,6 @@ void as5600_tca9548a_get_current_angle(float current_angle[4], float offset1[4],
       }
 
       // 0 to 360 -> -180 to 180
-      //current_angle[i] = map(current_angle[i], 0, 360, -180, 180);
+      current_angle[i] = map(current_angle[i], 0, 360, -180, 180);
     }
 }
