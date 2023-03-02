@@ -28,7 +28,6 @@ uint8_t send_data1[8] = {0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00}; // M20
 uint8_t send_data2[8] = {0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00}; // M2006に送信するデータ(8bit) (ID:5-8)
 
 // MDDS30
-int id = 0x01; // M2006のID (1-8)
 signed int speed_left = 0; // 左モータの速度(-100 ~ 100)
 signed int speed_right = 0; // 右モータの速度(-100 ~ 100)
 
@@ -53,9 +52,13 @@ double r_y = 0.0; // 右スティックのY軸
 
 double angle = 0.0; // 方向転換用の角度
 
-uint16_t mangle = 0; //
-uint16_t mrpm = 0; //
-uint16_t mtorque = 0; //
+uint16_t mangle[8] = {0, 0, 0, 0, 0, 0, 0, 0};
+uint16_t mrpm[8] = {0, 0, 0, 0, 0, 0, 0, 0};
+uint16_t mtorque[8] = {0, 0, 0, 0, 0, 0, 0, 0};
+uint16_t mangle_1 = 0;
+uint16_t mrpm_1 = 0;
+uint16_t mtorque_1 = 0;
+int id[8] = {0x201, 0x202, 0x203, 0x204, 0x205, 0x206, 0x207, 0x208}; // AS5600のID
 
 // 初期設定
 void setup() {
@@ -119,6 +122,7 @@ void setup() {
 }
 
 int x = 0;
+int num = 0;
 
 // メインループ: LEDが点滅していなければ，動いていないということ．
 void loop() {
@@ -189,20 +193,32 @@ void loop() {
 
   // ------------------------------------------------------------ //
   // 100msごとに割り込み処理
-  static unsigned long last_time = 0;
-  if (millis() - last_time > 100){ 
-    last_time = millis();
-    // 現在のホイールの方位方向の角度を取得
-    as5600_tca9548a_get_current_angle(current_angle, offset1, offset2);
-    m2006_read_data(0x201, mangle, mrpm, mtorque);
-  }
+  // static unsigned long last_time = 0;
+  // if (millis() - last_time > 100){ 
+  //   last_time = millis();
+  //   // 現在のホイールの方位方向の角度を取得
+  //   //as5600_tca9548a_get_current_angle(current_angle, offset1, offset2);
+  // }
+
+  // for (int i = 0; i < 8; i++){
+  //   Serial.print(String(id[i], HEX) + ": "); 
+  //   Serial.print(String(mangle[i]) + ", ");
+  //   Serial.print(String(mrpm[i]) + ", ");
+  //   Serial.print(String(mtorque[i]) + ", ");
+  //   Serial.print("  ");
+  // }
+  // Serial.println();
+
+
   // ------------------------------------------------------------ //
   // // M2006に送信するデータを作成
   // m2006_make_data(current_data, send_data1, send_data2);
   // // M2006にデータを送信
   // m2006_send_data(send_data1, send_data2);
   // M2006のデータを読むこむ
-
+  m2006_read_data(id[num], mangle_1, mrpm_1, mtorque_1);
+  num = (num + 1) % 8;
+  delay(10);
   // LEDを点滅
   digitalWrite(LED_PIN, !digitalRead(LED_PIN));
   // ------------------------------------------------------------ //

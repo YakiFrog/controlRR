@@ -7,6 +7,6 @@
 bool can_init(int rx, int tx, int speed);
 void m2006_make_data(int16_t data_in[8], uint8_t data_out1[8], uint8_t data_out2[8]);
 bool m2006_send_data(uint8_t data_out1[8], uint8_t data_out2[8]);
-void m2006_read_data(int id, uint16_t angle, uint16_t rpm, uint16_t torque);
+void m2006_read_data(int id, uint16_t mangle, uint16_t mrpm, uint16_t mtorque);
 
 #endif // __M2006_H__
