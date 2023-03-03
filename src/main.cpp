@@ -61,8 +61,8 @@ int id[8] = {0x201, 0x202, 0x203, 0x204, 0x205, 0x206, 0x207, 0x208};
 
 // -------------------------------------------------- //
 // PID
-double Kp = 10; // 比例ゲイン
-double Ki = 0.025; // 積分ゲイン
+double Kp = 13; // 比例ゲイン
+double Ki = 0.01; // 積分ゲイン
 double Kd = 0.03; // 微分ゲイン
 double dt = 0.01; // サンプリングタイム
 
@@ -118,11 +118,11 @@ void setup() {
   Serial.println("> AS5600_TCA9548A: Offset1: " + String(offset1[0]) + ", " + String(offset1[1]) + ", " + String(offset1[2]) + ", " + String(offset1[3]));
 
   // PS4
-  // PS4.begin(PS4_ADDR);
-  // Serial.println("> PS4: Started.");
-  // Serial.println("> PS4: Press PS button to connect.");
-  // while (!PS4.isConnected());
-  // Serial.println("> PS4: Connected.");
+  PS4.begin(PS4_ADDR);
+  Serial.println("> PS4: Started.");
+  Serial.println("> PS4: Press PS button to connect.");
+  while (!PS4.isConnected());
+  Serial.println("> PS4: Connected.");
 
   // LED
   digitalWrite(LED_PIN, HIGH);
@@ -187,36 +187,48 @@ void loop() {
   // モータに流す電流値を計算
 
   // 基底電流(これを基準に，角度に応じて電流を変化させる)
-  int target_rpm = 50;
+  // l_y -> -450 ~ 450
+  l_y = map(l_y, -127, 127, -300, 300); // -450 ~ 450
+  int target_rpm = l_y;
   int base_current = 1000;
+  int direction = 1;
 
   int16_t error[8];
   int16_t integral[8];
   int16_t derivative[8];
   int16_t pre_error[8];
-  
 
   // PID制御(速度制御)
   float dt = millis() - pre_time;
   pre_time = millis();
   for (int i = 0; i < 8; i++){
-    error[i] = target_rpm - abs(mrpm[i]);
-    if (i % 2 == 1){ // 奇数番目のモータの場合
-      error[i] += abs(mrpm[i - 1]) - abs(mrpm[i]); // 速度差を誤差に加算
-    } 
-    // 誤差/目標値
-    //if (abs(error[i])/target_rpm > 0.1) integral[i] = 0; // 目標値の10%以上の誤差がある場合，積分をリセット
+    error[i] = abs(target_rpm) - abs(mrpm[i]);
+    if (target_rpm > 0 && i % 2 == 1) error[i] += abs(mrpm[i - 1]) - abs(mrpm[i]); // 速度差を誤差に加算
+    if (target_rpm < 0 && i % 2 == 0) error[i] += abs(mrpm[i + 1]) - abs(mrpm[i]); // 速度差を誤差に加算
+    // 積分値をリセットする
+    if (abs(error[i]) > 300) integral[i] = 0;
     integral[i] += error[i] * dt; // 積分
     derivative[i] = (error[i] - pre_error[i]) / dt; // 微分
     pre_error[i] = error[i]; // 前回の誤差を保存
   }
 
+  if (target_rpm > 0){
+    direction = 1;
+  }else if (target_rpm < 0){
+    direction = -1;
+  }
 
-  for (int i = 0; i < 4; i++){
-    current_data[0 + (i * 2)] = base_current + (Kp * error[0 + (i * 2)] + Kd * derivative[0 + (i * 2)] + Ki * integral[0 + (i * 2)]);
-    current_data[1 + (i * 2)] = ((base_current) + (Kp * error[1 + (i * 2)] + Kd * derivative[1 + (i * 2)] + Ki * integral[1 + (i * 2)]));
-    if (current_data[0 + (i * 2)] > 3000) current_data[0 + (i * 2)] = 3000;
-    if (current_data[1 + (i * 2)] < -3000) current_data[1 + (i * 2)] = -3000;
+  if (target_rpm != 0){
+    for (int i = 0; i < 4; i++){
+      current_data[0 + (i * 2)] = direction * (base_current + (Kp * error[0 + (i * 2)] + Kd * derivative[0 + (i * 2)] + Ki * integral[0 + (i * 2)]));
+      current_data[1 + (i * 2)] = -direction * (base_current + (Kp * error[1 + (i * 2)] + Kd * derivative[1 + (i * 2)] + Ki * integral[1 + (i * 2)]));
+      if (current_data[0 + (i * 2)] > 3000) current_data[0 + (i * 2)] = 3000;
+      if (current_data[1 + (i * 2)] < -3000) current_data[1 + (i * 2)] = -3000;
+    }
+  } else if (target_rpm == 0 || !PS4.LatestPacket()){
+    for (int i = 0; i < 8; i++){
+      current_data[i] = 0;
+    }
   }
 
   // ------------------------------------------------------------ //
@@ -235,6 +247,7 @@ void loop() {
   // M2006のデータを読むこむ
   m2006_read_data(id[num], mangle, mrpm, mtorque);
   num = (num + 1) % 8;
+  Serial.print(String(l_y) + ": ");
   for (int i = 0; i < 8; i++){
     Serial.print(String(mrpm[i]) + ": ");
     Serial.print("[" + String(current_data[i]) + "], ");
