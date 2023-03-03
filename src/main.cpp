@@ -3,9 +3,9 @@
 #include <math.h>
 #include "m2006.h" // 自作ライブラリ
 #include "mdds30.h" // 自作ライブラリ
-#include "udp.h" // 自作ライブラリ
+//#include "udp.h" // 自作ライブラリ
 #include "as5600_tca9548a.h" // 自作ライブラリ
-#include "pid_m2006.h" // 自作ライブラリ
+//#include "pid_m2006.h" // 自作ライブラリ
 #include "esp_intr_alloc.h" // 割り込み処理
 
 // LED
@@ -62,11 +62,32 @@ int id[8] = {0x201, 0x202, 0x203, 0x204, 0x205, 0x206, 0x207, 0x208};
 // -------------------------------------------------- //
 // PID
 double Kp = 13; // 比例ゲイン
-double Ki = 0.01; // 積分ゲイン
+double Ki = 0.03; // 積分ゲイン
 double Kd = 0.03; // 微分ゲイン
 double dt = 0.01; // サンプリングタイム
 
-PID_M2006 pid(Kp, Ki, Kd, dt); // M2006のPID制御
+double Kp_angle = 1; // 比例ゲイン
+double Ki_angle = 0.03; // 積分ゲイン
+double Kd_angle = 0.03; // 微分ゲイン
+
+int16_t target_rpm[8] = {0, 0, 0, 0, 0, 0, 0, 0};
+int base_current = 1000;
+int direction[8] = {1, 1, 1, 1, 1, 1, 1, 1};
+
+int16_t error[8];
+int16_t integral[8];
+int16_t derivative[8];
+int16_t pre_error[8];
+float pre_time = 0.0;
+uint16_t sotai_error;
+
+int16_t error_angle[4];
+int16_t integral_angle[4];
+int16_t derivative_angle[4];
+int16_t pre_error_angle[4];
+float pre_time_angle = 0.0;
+
+//PID_M2006 pid(Kp, Ki, Kd, dt); // M2006のPID制御
 
 // 初期設定
 void setup() {
@@ -96,26 +117,20 @@ void setup() {
   Serial.println("> CAN: RX: " + String(rx) + ", TX: " + String(tx) + ", Speed: " + String(CAN_SPEED, 0) + " bps");
 
   // UDP(ESPNOW)
-  while (!udp_init());
-  Serial.println("> UDP: Started.");
-  Serial.println("> UDP: My MacAddress: " + WiFi.macAddress());
+  // while (!udp_init());
+  // Serial.println("> UDP: Started.");
+  // Serial.println("> UDP: My MacAddress: " + WiFi.macAddress());
 
-  // UDP(ESPNOW): 接続したいESP32のMACアドレスを登録
-  if (registerPeerInfo(unity_mac_addr) == ESP_OK) {
-    Serial.println("> UDP: Peer registered.");
-  } else {
-    Serial.println("> UDP: Peer not registered.");
-  }
+  // // UDP(ESPNOW): 接続したいESP32のMACアドレスを登録
+  // if (registerPeerInfo(unity_mac_addr) == ESP_OK) {
+  //   Serial.println("> UDP: Peer registered.");
+  // } else {
+  //   Serial.println("> UDP: Peer not registered.");
+  // }
 
   // コールバック関数の登録
   //esp_now_register_send_cb(onSend);
   //esp_now_register_recv_cb(onReceive);
-
-  // AS5600_TCA9548A
-  as5600_tca9548a_init(DIR_PIN);
-  Serial.println("> AS5600_TCA9548A: Started.");
-  as5600_tca9548a_get_offset(offset1);
-  Serial.println("> AS5600_TCA9548A: Offset1: " + String(offset1[0]) + ", " + String(offset1[1]) + ", " + String(offset1[2]) + ", " + String(offset1[3]));
 
   // PS4
   PS4.begin(PS4_ADDR);
@@ -123,6 +138,12 @@ void setup() {
   Serial.println("> PS4: Press PS button to connect.");
   while (!PS4.isConnected());
   Serial.println("> PS4: Connected.");
+
+  // AS5600_TCA9548A
+  as5600_tca9548a_init(DIR_PIN);
+  Serial.println("> AS5600_TCA9548A: Started.");
+  as5600_tca9548a_get_offset(offset1);
+  Serial.println("> AS5600_TCA9548A: Offset1: " + String(offset1[0]) + ", " + String(offset1[1]) + ", " + String(offset1[2]) + ", " + String(offset1[3]));
 
   // LED
   digitalWrite(LED_PIN, HIGH);
@@ -132,8 +153,6 @@ void setup() {
 
 int x = 0;
 int num = 0;
-float pre_time = 0.0;
-
 
 // メインループ: LEDが点滅していなければ，動いていないということ．
 void loop() {
@@ -169,6 +188,9 @@ void loop() {
 
   // l_x, l_yから角度を求める(-180 to 180)
   angle = atan2(l_x, l_y) * 180 / PI; // 0 ~ 360 (90度ずらす)
+  // -180 to 180 -> 0 to 360
+  angle = map(angle, -180, 180, 0, 360); // 0 ~ 360
+  angle -= 180;
   for (int i = 0; i < 4; i++){
     target_angle[i] = angle;
   }
@@ -189,43 +211,66 @@ void loop() {
   // 基底電流(これを基準に，角度に応じて電流を変化させる)
   // l_y -> -450 ~ 450
   l_y = map(l_y, -127, 127, -300, 300); // -450 ~ 450
-  int target_rpm = l_y;
-  int base_current = 1000;
-  int direction = 1;
+  for (int i = 0; i < 8; i++){
+    target_rpm[i] = l_y;
+  }
 
-  int16_t error[8];
-  int16_t integral[8];
-  int16_t derivative[8];
-  int16_t pre_error[8];
+   // // PID制御(角度制御) -> 4ユニットの偏差角度を計算
+  for (int i = 0; i < 4; i++){
+    error_angle[i] = abs(0) - abs(current_angle[i]);
+    if (error_angle[i] > 180) error_angle[i] -= 360; // 例：270 - 360 = -90 (CCW)
+    if (error_angle[i] < -180) error_angle[i] += 360; // 例：-270 + 360 = 90 (CW)
+
+    // CW
+    if (error_angle[i] > 0){ // 偏差が＋の場合, 偶数番目のCurrent_dataを減らす(CW)
+      if (target_rpm[(i * 2)] > 0) target_rpm[(i * 2)] = (l_y) - (l_y * 0.2);
+      else target_rpm[(i * 2)] = (l_y) + (l_y * 0.2);
+    }
+    // CCW
+    if (error_angle[i] < 0){ // 偏差が-の場合, 奇数番目のCurrent_dataを減らす(CCW)
+      if (target_rpm[(i * 2) + 1] > 0) target_rpm[(i * 2) + 1] = (l_y) - (l_y * 0.2);
+      else target_rpm[(i * 2) + 1] = (l_y) + (l_y * 0.2);
+    }
+    // integral_angle[i] += error_angle[i] * dt; // 積分
+    // derivative_angle[i] = (error_angle[i] - pre_error_angle[i]) / dt; // 微分
+    // pre_error_angle[i] = error_angle[i]; // 前回の誤差を保存
+  }
 
   // PID制御(速度制御)
   float dt = millis() - pre_time;
   pre_time = millis();
   for (int i = 0; i < 8; i++){
-    error[i] = abs(target_rpm) - abs(mrpm[i]);
-    if (target_rpm > 0 && i % 2 == 1) error[i] += abs(mrpm[i - 1]) - abs(mrpm[i]); // 速度差を誤差に加算
-    if (target_rpm < 0 && i % 2 == 0) error[i] += abs(mrpm[i + 1]) - abs(mrpm[i]); // 速度差を誤差に加算
-    // 積分値をリセットする
-    if (abs(error[i]) > 300) integral[i] = 0;
+    error[i] = abs(target_rpm[i]) - abs(mrpm[i]);
+    if (target_rpm[i] > 0 && i % 2 == 1) error[i] += abs(mrpm[i - 1]) - abs(mrpm[i]); // 速度差を誤差に加算(CCW)
+    if (target_rpm[i] < 0 && i % 2 == 0) error[i] += abs(mrpm[i + 1]) - abs(mrpm[i]); // 速度差を誤差に加算(CCW)
     integral[i] += error[i] * dt; // 積分
     derivative[i] = (error[i] - pre_error[i]) / dt; // 微分
     pre_error[i] = error[i]; // 前回の誤差を保存
+    if (target_rpm[i] > 0){
+      direction[i] = 1;
+    }else if (target_rpm[i] < 0){
+      direction[i] = -1;
+    }
   }
 
-  if (target_rpm > 0){
-    direction = 1;
-  }else if (target_rpm < 0){
-    direction = -1;
-  }
+  
 
-  if (target_rpm != 0){
+  // 現在角度を計算
+  // for (int i = 0; i < 4; i++){
+  //   pid_angle[i] += (((mrpm[0 + (i * 2)] + mrpm[1 + (i * 2)]) / 2) * dt) * (180 / PI); 
+  // }
+
+
+  if (l_y != 0){
+    // 速度制御
     for (int i = 0; i < 4; i++){
-      current_data[0 + (i * 2)] = direction * (base_current + (Kp * error[0 + (i * 2)] + Kd * derivative[0 + (i * 2)] + Ki * integral[0 + (i * 2)]));
-      current_data[1 + (i * 2)] = -direction * (base_current + (Kp * error[1 + (i * 2)] + Kd * derivative[1 + (i * 2)] + Ki * integral[1 + (i * 2)]));
+      current_data[0 + (i * 2)] = direction[0 + (i * 2)] * (base_current + (Kp * error[0 + (i * 2)] + Kd * derivative[0 + (i * 2)] + Ki * integral[0 + (i * 2)])); // TOP(CW)
+      current_data[1 + (i * 2)] = -direction[1 + (i * 2)] * (base_current + (Kp * error[1 + (i * 2)] + Kd * derivative[1 + (i * 2)] + Ki * integral[1 + (i * 2)])); // BOTTOM(CCW)
       if (current_data[0 + (i * 2)] > 3000) current_data[0 + (i * 2)] = 3000;
       if (current_data[1 + (i * 2)] < -3000) current_data[1 + (i * 2)] = -3000;
+
     }
-  } else if (target_rpm == 0 || !PS4.LatestPacket()){
+  } else if ((l_y == 0  && l_x == 0 )|| !PS4.LatestPacket()){
     for (int i = 0; i < 8; i++){
       current_data[i] = 0;
     }
@@ -247,10 +292,16 @@ void loop() {
   // M2006のデータを読むこむ
   m2006_read_data(id[num], mangle, mrpm, mtorque);
   num = (num + 1) % 8;
+  //Serial.print(String(angle) + ": ");
   Serial.print(String(l_y) + ": ");
+  int angle_num = 0;
   for (int i = 0; i < 8; i++){
-    Serial.print(String(mrpm[i]) + ": ");
-    Serial.print("[" + String(current_data[i]) + "], ");
+    Serial.print(String(mrpm[i]) + ": "); // 速度
+    //Serial.print("[" + String(current_data[i]) + "], "); // 電流
+    if (i % 2 == 1){
+      Serial.print(String(error_angle[angle_num]) + ": "); // 偏差角度
+      angle_num++;
+    }
   }
   Serial.println();
   // LEDを点滅
