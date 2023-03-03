@@ -41,7 +41,7 @@ bool m2006_send_data(uint8_t data_out1[8], uint8_t data_out2[8]) {
     return success0x200 && success0x1FF;
 }
 
-void m2006_read_data(int id, uint16_t mangle, uint16_t mrpm, uint16_t mtorque) {
+void m2006_read_data(int id, int16_t mangle[8], int16_t mrpm[8], int16_t mtorque[8]) {
     if (CAN.parsePacket() && CAN.filter(id)) {
         uint16_t angle = 0;
         uint16_t rpm = 0;
@@ -52,20 +52,12 @@ void m2006_read_data(int id, uint16_t mangle, uint16_t mrpm, uint16_t mtorque) {
             uint8_t bottom = CAN.read();
             int16_t data = (top << 8) | bottom;
             if (i == 0) angle = (float)(data * 360 / 8192);
-            if (i == 1) rpm = (float)(data * 36 / 8192);
+            if (i == 1) rpm = (float)(data / 36);
             if (i == 2) torque = (float)(data * 100 / 8192);
             if (i == 3) data = 0;
         }
-        Serial.print(id, HEX);
-        Serial.print(": ");
-        Serial.print(angle);
-        Serial.print(", ");
-        //Serial.print(rpm);
-        //Serial.print(", ");
-        //Serial.print(torque);
-        //Serial.print(", ");
-        if (String(id, HEX) == "208"){
-            Serial.println("");
-        }
+        mangle[id - 0x201] = angle;
+        mrpm[id - 0x201] = rpm;
+        mtorque[id - 0x201] = torque;
     }
 }

@@ -5,6 +5,7 @@
 #include "mdds30.h" // 自作ライブラリ
 #include "udp.h" // 自作ライブラリ
 #include "as5600_tca9548a.h" // 自作ライブラリ
+#include "pid_m2006.h" // 自作ライブラリ
 #include "esp_intr_alloc.h" // 割り込み処理
 
 // LED
@@ -52,13 +53,20 @@ double r_y = 0.0; // 右スティックのY軸
 
 double angle = 0.0; // 方向転換用の角度
 
-uint16_t mangle[8] = {0, 0, 0, 0, 0, 0, 0, 0};
-uint16_t mrpm[8] = {0, 0, 0, 0, 0, 0, 0, 0};
-uint16_t mtorque[8] = {0, 0, 0, 0, 0, 0, 0, 0};
-uint16_t mangle_1 = 0;
-uint16_t mrpm_1 = 0;
-uint16_t mtorque_1 = 0;
-int id[8] = {0x201, 0x202, 0x203, 0x204, 0x205, 0x206, 0x207, 0x208}; // AS5600のID
+int16_t mangle[8] = {0, 0, 0, 0, 0, 0, 0, 0};
+int16_t mrpm[8] = {0, 0, 0, 0, 0, 0, 0, 0};
+int16_t mtorque[8] = {0, 0, 0, 0, 0, 0, 0, 0};
+
+int id[8] = {0x201, 0x202, 0x203, 0x204, 0x205, 0x206, 0x207, 0x208};
+
+// -------------------------------------------------- //
+// PID
+double Kp = 10; // 比例ゲイン
+double Ki = 0.025; // 積分ゲイン
+double Kd = 0.03; // 微分ゲイン
+double dt = 0.01; // サンプリングタイム
+
+PID_M2006 pid(Kp, Ki, Kd, dt); // M2006のPID制御
 
 // 初期設定
 void setup() {
@@ -119,53 +127,56 @@ void setup() {
   // LED
   digitalWrite(LED_PIN, HIGH);
   delay(1000); // 1秒待つ
+
 }
 
 int x = 0;
 int num = 0;
+float pre_time = 0.0;
+
 
 // メインループ: LEDが点滅していなければ，動いていないということ．
 void loop() {
-  // if (PS4.LatestPacket()){
-  //   // 移動・旋回
-  //   if (PS4.LStickX()) l_x = PS4.LStickX(); // -127 ~ 127
-  //   if (PS4.LStickY()) l_y = PS4.LStickY(); // -127 ~ 127
-  //   if (PS4.RStickX()) r_x = PS4.RStickX(); // -127 ~ 127
-  //   if (PS4.RStickY()) r_y = PS4.RStickY(); // -127 ~ 127
-  //   // // 投射機構：上下
-  //   // if (PS4.Up()) mdds30_control_motor(0x01, 70, 70);
-  //   // if (PS4.Down()) mdds30_control_motor(0x01, -70, -70);
-  //   // if (!PS4.Up() && !PS4.Down()) mdds30_control_motor(0x01, 0, 0); 
-  //   // // 投射機構：回転
-  //   // if (PS4.Circle()) mdds30_control_motor(0x00, 100, 100); // 100%
-  //   // if (PS4.Triangle()) mdds30_control_motor(0x00, 70, 70); // 70%
-  //   // if (PS4.Square()) mdds30_control_motor(0x00, 50, 50); // 50%
-  //   // // 移動・旋回・投射機構：停止
-  //   // if (PS4.Cross()) { // 全てのモータを停止
-  //   //   mdds30_control_motor(0x00, 0, 0); // 0%
-  //   //   mdds30_control_motor(0x01, 0, 0); // 0%
-  //   //   l_x = 0.0;
-  //   //   l_y = 0.0;
-  //   //   r_x = 0.0;
-  //   //   r_y = 0.0;
-  //   // }
-  // }
+  if (PS4.LatestPacket()){
+    // 移動・旋回
+    if (PS4.LStickX()) l_x = PS4.LStickX(); // -127 ~ 127
+    if (PS4.LStickY()) l_y = PS4.LStickY(); // -127 ~ 127
+    if (PS4.RStickX()) r_x = PS4.RStickX(); // -127 ~ 127
+    if (PS4.RStickY()) r_y = PS4.RStickY(); // -127 ~ 127
+    // // 投射機構：上下
+    // if (PS4.Up()) mdds30_control_motor(0x01, 70, 70);
+    // if (PS4.Down()) mdds30_control_motor(0x01, -70, -70);
+    // if (!PS4.Up() && !PS4.Down()) mdds30_control_motor(0x01, 0, 0); 
+    // // 投射機構：回転
+    // if (PS4.Circle()) mdds30_control_motor(0x00, 100, 100); // 100%
+    // if (PS4.Triangle()) mdds30_control_motor(0x00, 70, 70); // 70%
+    // if (PS4.Square()) mdds30_control_motor(0x00, 50, 50); // 50%
+    // // 移動・旋回・投射機構：停止
+    // if (PS4.Cross()) { // 全てのモータを停止
+    //   mdds30_control_motor(0x00, 0, 0); // 0%
+    //   mdds30_control_motor(0x01, 0, 0); // 0%
+    //   l_x = 0.0;
+    //   l_y = 0.0;
+    //   r_x = 0.0;
+    //   r_y = 0.0;
+    // }
+  }
 
-  // if (l_x < 12.7 && l_x > -12.7) l_x = 0.0; // 12.7以下の値は0とする
-  // if (l_y < 12.7 && l_y > -12.7) l_y = 0.0; // 12.7以下の値は0とする
-  // if (r_x < 12.7 && r_x > -12.7) r_x = 0.0; // 12.7以下の値は0とする
-  // if (r_y < 12.7 && r_y > -12.7) r_y = 0.0; // 12.7以下の値は0とする
+  if (l_x < 12.7 && l_x > -12.7) l_x = 0.0; // 12.7以下の値は0とする
+  if (l_y < 12.7 && l_y > -12.7) l_y = 0.0; // 12.7以下の値は0とする
+  if (r_x < 12.7 && r_x > -12.7) r_x = 0.0; // 12.7以下の値は0とする
+  if (r_y < 12.7 && r_y > -12.7) r_y = 0.0; // 12.7以下の値は0とする
 
-  // // l_x, l_yから角度を求める(-180 to 180)
-  // angle = atan2(l_x, l_y) * 180 / PI; // 0 ~ 360 (90度ずらす)
-  // for (int i = 0; i < 4; i++){
-  //   target_angle[i] = angle;
-  // }
+  // l_x, l_yから角度を求める(-180 to 180)
+  angle = atan2(l_x, l_y) * 180 / PI; // 0 ~ 360 (90度ずらす)
+  for (int i = 0; i < 4; i++){
+    target_angle[i] = angle;
+  }
 
-  // for (int i = 0; i < 4; i++){
-  //   diff_angle[i] = target_angle[i] - current_angle[i]; // 例：180 - (-90) = 270
-  //   if (diff_angle[i] > 180) diff_angle[i] -= 360; // 例：270 - 360 = -90
-  // } 
+  for (int i = 0; i < 4; i++){
+    diff_angle[i] = target_angle[i] - current_angle[i]; // 例：180 - (-90) = 270
+    if (diff_angle[i] > 180) diff_angle[i] -= 360; // 例：270 - 360 = -90
+  } 
 
   // Serial.print(String(target_angle[0]) + ", ");
   // for (int i = 0; i < 4; i++){
@@ -173,55 +184,63 @@ void loop() {
   // }
   // Serial.println();
 
-  // // モータに流す電流値を計算
+  // モータに流す電流値を計算
 
-  // // 基底電流(これを基準に，角度に応じて電流を変化させる)
-  // int base_current = 1000;
+  // 基底電流(これを基準に，角度に応じて電流を変化させる)
+  int target_rpm = 50;
+  int base_current = 1000;
 
-  // for (int i = 0; i < 4; i++){
-  //   current_data[0 + (i * 2)] = (base_current * (diff_angle[i] / 180)); // 0 ~ 1000 (CW)
-  //   current_data[1 + (i * 2)] = (base_current * (diff_angle[i] / 180)); // 0 ~ 1000 (CCW)
-  // }
+  int16_t error[8];
+  int16_t integral[8];
+  int16_t derivative[8];
+  int16_t pre_error[8];
+  
 
-  //   // diff_angle[0] = 180   のとき  current_data[0] = 1000, current_data[1] = 0
-  //   // diff_angle[0] = 90    のとき  current_data[0] = 750, current_data[1] = 250
-  //   // diff_angle[0] = 45    のとき  current_data[0] = 625, current_data[1] = 375
-  //   // diff_angle[0] = 0     のとき  current_data[0] = 500, current_data[1] = 500 (停止限界)
-  //   // diff_angle[0] = -45   のとき  current_data[0] = 375, current_data[1] = 625
-  //   // diff_angle[0] = -90   のとき  current_data[0] = 250, current_data[1] = 750
-  //   // diff_angle[0] = -180  のとき  current_data[0] = 0, current_data[1] = 1000
+  // PID制御(速度制御)
+  float dt = millis() - pre_time;
+  pre_time = millis();
+  for (int i = 0; i < 8; i++){
+    error[i] = target_rpm - abs(mrpm[i]);
+    if (i % 2 == 1){ // 奇数番目のモータの場合
+      error[i] += abs(mrpm[i - 1]) - abs(mrpm[i]); // 速度差を誤差に加算
+    } 
+    // 誤差/目標値
+    //if (abs(error[i])/target_rpm > 0.1) integral[i] = 0; // 目標値の10%以上の誤差がある場合，積分をリセット
+    integral[i] += error[i] * dt; // 積分
+    derivative[i] = (error[i] - pre_error[i]) / dt; // 微分
+    pre_error[i] = error[i]; // 前回の誤差を保存
+  }
+
+
+  for (int i = 0; i < 4; i++){
+    current_data[0 + (i * 2)] = base_current + (Kp * error[0 + (i * 2)] + Kd * derivative[0 + (i * 2)] + Ki * integral[0 + (i * 2)]);
+    current_data[1 + (i * 2)] = ((base_current) + (Kp * error[1 + (i * 2)] + Kd * derivative[1 + (i * 2)] + Ki * integral[1 + (i * 2)]));
+    if (current_data[0 + (i * 2)] > 3000) current_data[0 + (i * 2)] = 3000;
+    if (current_data[1 + (i * 2)] < -3000) current_data[1 + (i * 2)] = -3000;
+  }
 
   // ------------------------------------------------------------ //
   // 100msごとに割り込み処理
-  // static unsigned long last_time = 0;
-  // if (millis() - last_time > 100){ 
-  //   last_time = millis();
-  //   // 現在のホイールの方位方向の角度を取得
-  //   //as5600_tca9548a_get_current_angle(current_angle, offset1, offset2);
-  // }
-
-  // for (int i = 0; i < 8; i++){
-  //   Serial.print(String(id[i], HEX) + ": "); 
-  //   Serial.print(String(mangle[i]) + ", ");
-  //   Serial.print(String(mrpm[i]) + ", ");
-  //   Serial.print(String(mtorque[i]) + ", ");
-  //   Serial.print("  ");
-  // }
-  // Serial.println();
-
-
+  static unsigned long last_time = 0;
+  if (millis() - last_time > 100){ 
+    last_time = millis();
+    // 現在のホイールの方位方向の角度を取得
+    as5600_tca9548a_get_current_angle(current_angle, offset1, offset2);
+  }
   // ------------------------------------------------------------ //
-  // // M2006に送信するデータを作成
-  // m2006_make_data(current_data, send_data1, send_data2);
-  // // M2006にデータを送信
-  // m2006_send_data(send_data1, send_data2);
+  // M2006に送信するデータを作成
+  m2006_make_data(current_data, send_data1, send_data2);
+  // M2006にデータを送信
+  m2006_send_data(send_data1, send_data2);
   // M2006のデータを読むこむ
-  m2006_read_data(id[num], mangle_1, mrpm_1, mtorque_1);
+  m2006_read_data(id[num], mangle, mrpm, mtorque);
   num = (num + 1) % 8;
-  delay(10);
+  for (int i = 0; i < 8; i++){
+    Serial.print(String(mrpm[i]) + ": ");
+    Serial.print("[" + String(current_data[i]) + "], ");
+  }
+  Serial.println();
   // LEDを点滅
   digitalWrite(LED_PIN, !digitalRead(LED_PIN));
   // ------------------------------------------------------------ //
-
-  //
 }
