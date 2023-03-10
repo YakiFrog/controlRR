@@ -42,7 +42,6 @@ uint8_t my_mac_addr[6] = {0x00, 0x00, 0x00, 0x00, 0x00, 0x00};
 float offset1[4] = {0.0, 0.0, 0.0, 0.0}; // 静止時のオフセット値(4個分)
 float offset2[4] = {0.0, 0.0, 0.0, 0.0}; // 回転時のオフセット値(4個分)
 float current_angle[4] = {0.0, 0.0, 0.0, 0.0}; // AS5600の現在の角度(4個分) (0 to 360)
-float target_angle[4] = {0.0, 0.0, 0.0, 0.0}; // AS5600の目標角度(4個分) (0 to 360)
 float diff_angle[4] = {0.0, 0.0, 0.0, 0.0}; // AS5600の目標角度と現在の角度の差(4個分) (0 to 360)
 // -------------------------------------------------- //
 
@@ -51,7 +50,7 @@ double l_y = 0.0; // 左スティックのY軸
 double r_x = 0.0; // 右スティックのX軸
 double r_y = 0.0; // 右スティックのY軸
 
-double angle = 0.0; // 方向転換用の角度
+double controller_angle = 0.0; // コントローラの角度
 
 int16_t mangle[8] = {0, 0, 0, 0, 0, 0, 0, 0};
 int16_t mrpm[8] = {0, 0, 0, 0, 0, 0, 0, 0};
@@ -61,19 +60,22 @@ int id[8] = {0x201, 0x202, 0x203, 0x204, 0x205, 0x206, 0x207, 0x208};
 
 // -------------------------------------------------- //
 // PID
-double Kp = 13; // 比例ゲイン
+double Kp = 13; // 比例ゲイン 13
 double Ki = 0.03; // 積分ゲイン
-double Kd = 0.03; // 微分ゲイン
-double dt = 0.01; // サンプリングタイム
+double Kd = 0.05; // 微分ゲイン
 
 double Kp_angle = 1; // 比例ゲイン
-double Ki_angle = 0.03; // 積分ゲイン
-double Kd_angle = 0.03; // 微分ゲイン
+double Ki_angle = 0.01; // 積分ゲイン
+double Kd_angle = 0.01; // 微分ゲイン
 
 int16_t target_rpm[8] = {0, 0, 0, 0, 0, 0, 0, 0};
+int16_t target_angle[4] = {0, 0, 0, 0};
 int base_current = 1000;
 int direction[8] = {1, 1, 1, 1, 1, 1, 1, 1};
+int direct = 1;
+int length = 0;
 
+// PID制御(速度制御)
 int16_t error[8];
 int16_t integral[8];
 int16_t derivative[8];
@@ -81,13 +83,46 @@ int16_t pre_error[8];
 float pre_time = 0.0;
 uint16_t sotai_error;
 
+// PID制御(角度制御)
 int16_t error_angle[4];
 int16_t integral_angle[4];
 int16_t derivative_angle[4];
 int16_t pre_error_angle[4];
 float pre_time_angle = 0.0;
 
+float prev_time = 0.0;
+
+// DifferentialDrive
+int16_t w_w[4] = {0, 0, 0, 0}; // 移動方向の速度
+int16_t w_a[4] = {0, 0, 0, 0}; // 方位方向の速度
+int16_t d_a[4] = {0, 0, 0, 0}; // 方位方向の速度
+
 //PID_M2006 pid(Kp, Ki, Kd, dt); // M2006のPID制御
+
+// void pid_rpm(){
+//   // PID制御(速度制御)
+//   float dt = millis() - pre_time;
+//   pre_time = millis();
+//   for (int i = 0; i < 8; i++){
+//     error[i] = abs(target_rpm[i]) - abs(mrpm[i]);
+//     if (target_rpm[i] > 0 && i % 2 == 1) error[i] += abs(mrpm[i - 1]) - abs(mrpm[i]); // 速度差を誤差に加算(CCW)
+//     if (target_rpm[i] < 0 && i % 2 == 0) error[i] += abs(mrpm[i + 1]) - abs(mrpm[i]); // 速度差を誤差に加算(CCW)
+//     integral[i] += error[i] * dt; // 積分
+//     derivative[i] = (error[i] - pre_error[i]) / dt; // 微分
+//     pre_error[i] = error[i]; // 前回の誤差を保存
+//   }
+// }
+
+void pid_angle(){
+  for (int i = 0; i < 4; i++){
+    error_angle[i] = target_angle[i] - current_angle[i];
+    if (error_angle[i] > 180) error_angle[i] -= 360; // 180度以上の誤差を-180度に変換
+    if (error_angle[i] < -180) error_angle[i] += 360; // -180度以下の誤差を180度に変換
+    if (error_angle[i] > 0) direction[i] = 1; // 方向を保存
+    if (error_angle[i] < 0) direction[i] = -1; // 方向を保存
+    error_angle[i] = abs(error_angle[i]); // 誤差を絶対値に変換
+  }
+}
 
 // 初期設定
 void setup() {
@@ -162,6 +197,8 @@ void loop() {
     if (PS4.LStickY()) l_y = PS4.LStickY(); // -127 ~ 127
     if (PS4.RStickX()) r_x = PS4.RStickX(); // -127 ~ 127
     if (PS4.RStickY()) r_y = PS4.RStickY(); // -127 ~ 127
+    if (PS4.Left()) l_x = -100;
+    if (PS4.Right()) l_x = 100;
     // // 投射機構：上下
     // if (PS4.Up()) mdds30_control_motor(0x01, 70, 70);
     // if (PS4.Down()) mdds30_control_motor(0x01, -70, -70);
@@ -186,93 +223,64 @@ void loop() {
   if (r_x < 12.7 && r_x > -12.7) r_x = 0.0; // 12.7以下の値は0とする
   if (r_y < 12.7 && r_y > -12.7) r_y = 0.0; // 12.7以下の値は0とする
 
-  // l_x, l_yから角度を求める(-180 to 180)
-  angle = atan2(l_x, l_y) * 180 / PI; // 0 ~ 360 (90度ずらす)
-  // -180 to 180 -> 0 to 360
-  angle = map(angle, -180, 180, 0, 360); // 0 ~ 360
-  angle -= 180;
-  for (int i = 0; i < 4; i++){
-    target_angle[i] = angle;
-  }
+  // //l_x, l_yから角度を求める(-180 to 180)
+  // controller_angle = atan2(l_x, l_y) * 180 / PI; // 0 ~ 360 (90度ずらす)
+  // // -180 to 0 -> 180 to 360
+  // if (controller_angle < 0) controller_angle += 360; 
 
-  for (int i = 0; i < 4; i++){
-    diff_angle[i] = target_angle[i] - current_angle[i]; // 例：180 - (-90) = 270
-    if (diff_angle[i] > 180) diff_angle[i] -= 360; // 例：270 - 360 = -90
-  } 
-
-  // Serial.print(String(target_angle[0]) + ", ");
   // for (int i = 0; i < 4; i++){
-  //   Serial.print(String(diff_angle[i]) + ", ");
+  //   target_angle[i] = controller_angle; // 目標角度(0 ~ 360)
   // }
-  // Serial.println();
 
-  // モータに流す電流値を計算
+  // l_y -127 ~ 127 to -300 ~ 300
+  l_y = map(l_y, -127, 127, -300, 300);
 
-  // 基底電流(これを基準に，角度に応じて電流を変化させる)
-  // l_y -> -450 ~ 450
-  l_y = map(l_y, -127, 127, -300, 300); // -450 ~ 450
+  // r_x -127 ~ 127 to -300 ~ 300
+  r_x = map(r_x, -127, 127, -100, 100);
+
   for (int i = 0; i < 8; i++){
-    target_rpm[i] = l_y;
+    if (i % 2 == 0) target_rpm[i] = l_y - r_x; // 前後
+    else target_rpm[i] = -l_y - r_x; // 左右
   }
 
-   // // PID制御(角度制御) -> 4ユニットの偏差角度を計算
   for (int i = 0; i < 4; i++){
-    error_angle[i] = abs(0) - abs(current_angle[i]);
-    if (error_angle[i] > 180) error_angle[i] -= 360; // 例：270 - 360 = -90 (CCW)
-    if (error_angle[i] < -180) error_angle[i] += 360; // 例：-270 + 360 = 90 (CW)
+    w_w[i] = (mrpm[0 + (i * 2)] - mrpm[1 + (i * 2)]) / 2; // 移動方向の速度
+    w_a[i] = (mrpm[0 + (i * 2)] + mrpm[1 + (i * 2)]) / 2; // 方位方向の速度
+  }
 
-    // CW
-    if (error_angle[i] > 0){ // 偏差が＋の場合, 偶数番目のCurrent_dataを減らす(CW)
-      if (target_rpm[(i * 2)] > 0) target_rpm[(i * 2)] = (l_y) - (l_y * 0.2);
-      else target_rpm[(i * 2)] = (l_y) + (l_y * 0.2);
-    }
-    // CCW
-    if (error_angle[i] < 0){ // 偏差が-の場合, 奇数番目のCurrent_dataを減らす(CCW)
-      if (target_rpm[(i * 2) + 1] > 0) target_rpm[(i * 2) + 1] = (l_y) - (l_y * 0.2);
-      else target_rpm[(i * 2) + 1] = (l_y) + (l_y * 0.2);
-    }
-    // integral_angle[i] += error_angle[i] * dt; // 積分
-    // derivative_angle[i] = (error_angle[i] - pre_error_angle[i]) / dt; // 微分
-    // pre_error_angle[i] = error_angle[i]; // 前回の誤差を保存
+  // w_a * 時間 = 角度
+  float dt = millis() - prev_time;
+  prev_time = millis();
+  for (int i = 0; i < 4; i++){
+    d_a[i] += (w_a[i] * (180 / PI)) * (dt / 1000); // 角度
   }
 
   // PID制御(速度制御)
-  float dt = millis() - pre_time;
+  float dt2 = millis() - pre_time;
   pre_time = millis();
   for (int i = 0; i < 8; i++){
-    error[i] = abs(target_rpm[i]) - abs(mrpm[i]);
-    if (target_rpm[i] > 0 && i % 2 == 1) error[i] += abs(mrpm[i - 1]) - abs(mrpm[i]); // 速度差を誤差に加算(CCW)
-    if (target_rpm[i] < 0 && i % 2 == 0) error[i] += abs(mrpm[i + 1]) - abs(mrpm[i]); // 速度差を誤差に加算(CCW)
-    integral[i] += error[i] * dt; // 積分
-    derivative[i] = (error[i] - pre_error[i]) / dt; // 微分
+    error[i] = target_rpm[i] - mrpm[i];
+    integral[i] += error[i] * dt2; // 積分
+    derivative[i] = (error[i] - pre_error[i]) / dt2; // 微分
     pre_error[i] = error[i]; // 前回の誤差を保存
-    if (target_rpm[i] > 0){
-      direction[i] = 1;
-    }else if (target_rpm[i] < 0){
-      direction[i] = -1;
-    }
   }
 
-  
+  for (int i = 0; i < 4; i++){
+    current_data[0 + (i * 2)] = (Kp * error[0 + (i * 2)] + Ki * integral[0 + (i * 2)] + Kd * derivative[0 + (i * 2)]);
+    current_data[1 + (i * 2)] = (Kp * error[1 + (i * 2)] + Ki * integral[1 + (i * 2)] + Kd * derivative[1 + (i * 2)]);
+    if (current_data[0 + (i * 2)] > 3000) current_data[0 + (i * 2)] = 3000;
+    if (current_data[1 + (i * 2)] > 3000) current_data[1 + (i * 2)] = 3000;
+    if (current_data[0 + (i * 2)] < -3000) current_data[0 + (i * 2)] = -3000;
+    if (current_data[1 + (i * 2)] < -3000) current_data[1 + (i * 2)] = -3000;
+  }
 
-  // 現在角度を計算
-  // for (int i = 0; i < 4; i++){
-  //   pid_angle[i] += (((mrpm[0 + (i * 2)] + mrpm[1 + (i * 2)]) / 2) * dt) * (180 / PI); 
-  // }
-
-
-  if (l_y != 0){
-    // 速度制御
-    for (int i = 0; i < 4; i++){
-      current_data[0 + (i * 2)] = direction[0 + (i * 2)] * (base_current + (Kp * error[0 + (i * 2)] + Kd * derivative[0 + (i * 2)] + Ki * integral[0 + (i * 2)])); // TOP(CW)
-      current_data[1 + (i * 2)] = -direction[1 + (i * 2)] * (base_current + (Kp * error[1 + (i * 2)] + Kd * derivative[1 + (i * 2)] + Ki * integral[1 + (i * 2)])); // BOTTOM(CCW)
-      if (current_data[0 + (i * 2)] > 3000) current_data[0 + (i * 2)] = 3000;
-      if (current_data[1 + (i * 2)] < -3000) current_data[1 + (i * 2)] = -3000;
-
-    }
-  } else if ((l_y == 0  && l_x == 0 )|| !PS4.LatestPacket()){
+  // もし，PS4の左スティックが中央に戻ったら，モータの電流を0にする
+  if ((l_y == 0 && l_x == 0 && r_x == 0 && r_y == 0)|| !PS4.LatestPacket()){
     for (int i = 0; i < 8; i++){
-      current_data[i] = 0;
+      target_rpm[i] = 0;
+    }
+    for (int i = 0; i < 4; i++){
+      target_angle[i] = 0;
     }
   }
 
@@ -292,14 +300,22 @@ void loop() {
   // M2006のデータを読むこむ
   m2006_read_data(id[num], mangle, mrpm, mtorque);
   num = (num + 1) % 8;
-  //Serial.print(String(angle) + ": ");
-  Serial.print(String(l_y) + ": ");
+  //Serial.print(String(controller_angle, 0) + ": ");
+  Serial.print(String(l_y, 0) + ": ");
+  Serial.print(String(r_x, 0) + ": ");
   int angle_num = 0;
   for (int i = 0; i < 8; i++){
-    Serial.print(String(mrpm[i]) + ": "); // 速度
-    //Serial.print("[" + String(current_data[i]) + "], "); // 電流
-    if (i % 2 == 1){
-      Serial.print(String(error_angle[angle_num]) + ": "); // 偏差角度
+    //Serial.print(String(mrpm[i]) + "[rpm], "); // 速度
+    //Serial.print(String(abs(abs(mrpm[i]) - abs(l_y)) / abs(l_y)) + "[%], "); // 相対誤差
+    //Serial.print("[" + String(current_data[i]) + "mA], "); // 電流
+    if (i % 2 == 1){ // i = 1, 3, 5, 7 のとき
+      // Serial.print(String(w_w[angle_num]) + "[rpm], "); // 移動方向の速度
+      // Serial.print(String(w_a[angle_num]) + "[rpm], "); // 回転方向の速度
+      // Serial.print(String(d_a[angle_num]) + "[deg], "); // 累積角度
+      Serial.print(String(current_angle[angle_num], 0) + "[deg], "); // 現在の角度
+      //Serial.print(String(error_angle[angle_num]) + "[deg], "); // 偏差角度
+      //Serial.print(": "); // 目標速度
+      //Serial.print(String(abs(abs(mrpm[i - 1]) - abs(l_y - r_x)) / abs(l_y - r_x) * abs(abs(mrpm[i]) - abs(l_y - r_x)) / abs(l_y - r_x)) + "[%], "); // 相対誤差
       angle_num++;
     }
   }
