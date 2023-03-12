@@ -41,6 +41,7 @@ bool m2006_send_data(uint8_t data_out1[8], uint8_t data_out2[8]) {
     return success0x200 && success0x1FF;
 }
 
+// M2006からデータを受信
 void m2006_read_data(int id, int16_t mangle[8], int16_t mrpm[8], int16_t mtorque[8]) {
     if (CAN.parsePacket() && CAN.filter(id)) {
         uint16_t angle = 0;
